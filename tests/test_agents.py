@@ -1,0 +1,197 @@
+"""Tests for agent factory functions in agents/player.py and agents/coach.py."""
+
+from unittest.mock import MagicMock, call, patch
+
+import pytest
+
+
+class TestCreatePlayer:
+    """Tests for the create_player factory function."""
+
+    def test_returns_result_of_create_deep_agent(self):
+        """create_player returns whatever create_deep_agent returns."""
+        fake_agent = MagicMock(name="fake_player_agent")
+        with patch("agents.player.create_deep_agent", return_value=fake_agent) as mock_cda, \
+             patch("agents.player.FilesystemBackend") as mock_backend_cls:
+            from agents.player import create_player
+
+            result = create_player(model="test-model", domain_prompt="evaluate X")
+
+        assert result is fake_agent
+
+    def test_passes_model_to_create_deep_agent(self):
+        """create_player forwards the model argument to create_deep_agent."""
+        sentinel_model = MagicMock(name="model")
+        with patch("agents.player.create_deep_agent") as mock_cda, \
+             patch("agents.player.FilesystemBackend"):
+            from agents.player import create_player
+
+            create_player(model=sentinel_model, domain_prompt="some criteria")
+
+        _, kwargs = mock_cda.call_args
+        assert kwargs["model"] is sentinel_model
+
+    def test_system_prompt_is_base_plus_domain(self):
+        """create_player concatenates PLAYER_SYSTEM_PROMPT and domain_prompt."""
+        from prompts.player_prompts import PLAYER_SYSTEM_PROMPT
+
+        domain = "domain-specific criteria here"
+        expected = PLAYER_SYSTEM_PROMPT + "\n\n" + domain
+
+        with patch("agents.player.create_deep_agent") as mock_cda, \
+             patch("agents.player.FilesystemBackend"):
+            from agents.player import create_player
+
+            create_player(model="m", domain_prompt=domain)
+
+        _, kwargs = mock_cda.call_args
+        assert kwargs["system_prompt"] == expected
+
+    def test_tools_include_search_data_and_write_output(self):
+        """create_player passes search_data and write_output as tools."""
+        from tools.search_data import search_data
+        from tools.write_output import write_output
+
+        with patch("agents.player.create_deep_agent") as mock_cda, \
+             patch("agents.player.FilesystemBackend"):
+            from agents.player import create_player
+
+            create_player(model="m", domain_prompt="d")
+
+        _, kwargs = mock_cda.call_args
+        assert search_data in kwargs["tools"]
+        assert write_output in kwargs["tools"]
+
+    def test_memory_is_agents_md(self):
+        """create_player passes memory=["./AGENTS.md"]."""
+        with patch("agents.player.create_deep_agent") as mock_cda, \
+             patch("agents.player.FilesystemBackend"):
+            from agents.player import create_player
+
+            create_player(model="m", domain_prompt="d")
+
+        _, kwargs = mock_cda.call_args
+        assert kwargs["memory"] == ["./AGENTS.md"]
+
+    def test_backend_is_filesystem_backend_with_root_dot(self):
+        """create_player uses FilesystemBackend(root_dir='.')."""
+        with patch("agents.player.create_deep_agent") as mock_cda, \
+             patch("agents.player.FilesystemBackend") as mock_backend_cls:
+            fake_backend_instance = MagicMock(name="fs_backend")
+            mock_backend_cls.return_value = fake_backend_instance
+
+            from agents.player import create_player
+
+            create_player(model="m", domain_prompt="d")
+
+        mock_backend_cls.assert_called_once_with(root_dir=".")
+        _, kwargs = mock_cda.call_args
+        assert kwargs["backend"] is fake_backend_instance
+
+    def test_domain_prompt_empty_string(self):
+        """create_player works when domain_prompt is an empty string."""
+        from prompts.player_prompts import PLAYER_SYSTEM_PROMPT
+
+        with patch("agents.player.create_deep_agent") as mock_cda, \
+             patch("agents.player.FilesystemBackend"):
+            from agents.player import create_player
+
+            create_player(model="m", domain_prompt="")
+
+        _, kwargs = mock_cda.call_args
+        assert kwargs["system_prompt"] == PLAYER_SYSTEM_PROMPT + "\n\n"
+
+
+class TestCreateCoach:
+    """Tests for the create_coach factory function."""
+
+    def test_returns_result_of_create_deep_agent(self):
+        """create_coach returns whatever create_deep_agent returns."""
+        fake_agent = MagicMock(name="fake_coach_agent")
+        with patch("agents.coach.create_deep_agent", return_value=fake_agent):
+            from agents.coach import create_coach
+
+            result = create_coach(model="test-model", domain_prompt="evaluate X")
+
+        assert result is fake_agent
+
+    def test_passes_model_to_create_deep_agent(self):
+        """create_coach forwards the model argument to create_deep_agent."""
+        sentinel_model = MagicMock(name="model")
+        with patch("agents.coach.create_deep_agent") as mock_cda:
+            from agents.coach import create_coach
+
+            create_coach(model=sentinel_model, domain_prompt="some criteria")
+
+        _, kwargs = mock_cda.call_args
+        assert kwargs["model"] is sentinel_model
+
+    def test_system_prompt_is_base_plus_domain(self):
+        """create_coach concatenates COACH_SYSTEM_PROMPT and domain_prompt."""
+        from prompts.coach_prompts import COACH_SYSTEM_PROMPT
+
+        domain = "evaluate content against these rules"
+        expected = COACH_SYSTEM_PROMPT + "\n\n" + domain
+
+        with patch("agents.coach.create_deep_agent") as mock_cda:
+            from agents.coach import create_coach
+
+            create_coach(model="m", domain_prompt=domain)
+
+        _, kwargs = mock_cda.call_args
+        assert kwargs["system_prompt"] == expected
+
+    def test_tools_is_empty_list(self):
+        """create_coach passes an empty tools list (evaluation only, no write tools)."""
+        with patch("agents.coach.create_deep_agent") as mock_cda:
+            from agents.coach import create_coach
+
+            create_coach(model="m", domain_prompt="d")
+
+        _, kwargs = mock_cda.call_args
+        assert kwargs["tools"] == []
+
+    def test_memory_is_agents_md(self):
+        """create_coach passes memory=["./AGENTS.md"]."""
+        with patch("agents.coach.create_deep_agent") as mock_cda:
+            from agents.coach import create_coach
+
+            create_coach(model="m", domain_prompt="d")
+
+        _, kwargs = mock_cda.call_args
+        assert kwargs["memory"] == ["./AGENTS.md"]
+
+    def test_no_backend_argument(self):
+        """create_coach does not pass a backend= argument (uses default StateBackend)."""
+        with patch("agents.coach.create_deep_agent") as mock_cda:
+            from agents.coach import create_coach
+
+            create_coach(model="m", domain_prompt="d")
+
+        _, kwargs = mock_cda.call_args
+        assert "backend" not in kwargs
+
+    def test_does_not_import_filesystem_backend(self):
+        """agents.coach module must not import FilesystemBackend."""
+        import importlib
+        import sys
+
+        # Remove cached module to force fresh import inspection
+        sys.modules.pop("agents.coach", None)
+
+        import agents.coach as coach_module
+
+        # FilesystemBackend should not be an attribute of the module
+        assert not hasattr(coach_module, "FilesystemBackend")
+
+    def test_domain_prompt_empty_string(self):
+        """create_coach works when domain_prompt is an empty string."""
+        from prompts.coach_prompts import COACH_SYSTEM_PROMPT
+
+        with patch("agents.coach.create_deep_agent") as mock_cda:
+            from agents.coach import create_coach
+
+            create_coach(model="m", domain_prompt="")
+
+        _, kwargs = mock_cda.call_args
+        assert kwargs["system_prompt"] == COACH_SYSTEM_PROMPT + "\n\n"
